@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>無限横スクロール・ジャンプゲーム</title>
+  <title>メトランナー</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <style>
     html, body {
@@ -43,7 +43,7 @@
     let walls = [];       // 壁（足場、押し戻し）
     let platforms = [];   // 空中床
     let items = [];       // アイテム：スコア・ひよこ・自転車・スター
-    let birds = [];       // 空の敵（鳥・爆弾・唐辛子）
+    let birds = [];       // 空の敵（コウモリ・爆弾・唐辛子）
     let bees = [];        // 空の敵：蜂（サインカーブで移動）
     let ghosts = [];      // 空の敵：オバケ（進んだり止まったり）
     let turtles = [];     // 地上の敵（亀）
@@ -97,13 +97,13 @@
     let isRespawnPause = false;
     let respawnPauseTimer = 0;
 
+    // --- 直前にやられた位置（同じのに何度も当たらない用） ---
+    let lastDeathAvoidCenterX = null;
+
     // ==========================
-    // サウンド（BGM + イベント音）
+    // サウンド（イベント音のみ：BGMなし）
     // ==========================
     let audioCtx = null;
-    let bgmOsc1 = null;
-    let bgmOsc2 = null;
-    let bgmGain = null;
 
     function initAudio() {
       if (!audioCtx) {
@@ -118,43 +118,6 @@
       if (audioCtx && audioCtx.state === "suspended") {
         audioCtx.resume();
       }
-    }
-
-    function startBGM() {
-      if (!audioCtx || bgmOsc1) return;
-
-      bgmOsc1 = audioCtx.createOscillator();
-      bgmOsc2 = audioCtx.createOscillator();
-      bgmGain = audioCtx.createGain();
-
-      bgmOsc1.type = "triangle";
-      bgmOsc2.type = "square";
-      bgmOsc1.frequency.value = 220; // A3
-      bgmOsc2.frequency.value = 330; // E4
-
-      bgmGain.gain.value = 0.04;
-
-      bgmOsc1.connect(bgmGain);
-      bgmOsc2.connect(bgmGain);
-      bgmGain.connect(audioCtx.destination);
-
-      const now = audioCtx.currentTime;
-      bgmGain.gain.setValueAtTime(0.03, now);
-      bgmGain.gain.linearRampToValueAtTime(0.05, now + 2);
-      bgmGain.gain.linearRampToValueAtTime(0.03, now + 4);
-
-      bgmOsc1.start();
-      bgmOsc2.start();
-    }
-
-    function stopBGM() {
-      if (bgmOsc1) {
-        try { bgmOsc1.stop(); } catch(e){}
-        try { bgmOsc2.stop(); } catch(e){}
-      }
-      bgmOsc1 = null;
-      bgmOsc2 = null;
-      bgmGain = null;
     }
 
     function playBeep(f, duration, type = "sine", volume = 0.3) {
@@ -273,6 +236,8 @@
       lostMessageTimer = 0;
       isRespawnPause = false;
       respawnPauseTimer = 0;
+
+      lastDeathAvoidCenterX = null;
     }
 
     // ==========================
@@ -301,7 +266,16 @@
       return false;
     }
 
-    // 指定したX（中心）が穴 or 敵の上かどうか
+    function getHoleCenterUnderX(centerX) {
+      for (const hole of holes) {
+        if (centerX > hole.x && centerX < hole.x + hole.width) {
+          return hole.x + hole.width / 2;
+        }
+      }
+      return null;
+    }
+
+    // 指定したX（中心）が穴 or 敵 or 直前死亡ポイントの近くかどうか
     function isCenterOverHoleOrEnemy(centerX) {
       // 穴
       for (const hole of holes) {
@@ -309,7 +283,7 @@
           return true;
         }
       }
-      // 敵（地上・空中含め、X帯が近いと危険とみなす）
+      // 敵（地上・空中含め）
       const enemyLists = [turtles, mushrooms, birds, bees, ghosts];
       const margin = 30; // 少しゆとりを持って避ける
       for (const list of enemyLists) {
@@ -320,6 +294,13 @@
           }
         }
       }
+      // 直前に死んだ位置の近く
+      const avoidMargin = 80;
+      if (lastDeathAvoidCenterX != null) {
+        if (Math.abs(centerX - lastDeathAvoidCenterX) < avoidMargin) {
+          return true;
+        }
+      }
       return false;
     }
 
@@ -328,7 +309,18 @@
       const minX = canvas.width * 0.10;
       const maxX = canvas.width * 0.30;
       const step = 20;
+
+      // 候補をランダム順に試す
+      const candidates = [];
       for (let x = minX; x <= maxX; x += step) {
+        candidates.push(x);
+      }
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+
+      for (const x of candidates) {
         const cx = x + player.width / 2;
         if (!isCenterOverHoleOrEnemy(cx)) {
           return x;
@@ -418,14 +410,13 @@
 
       if (lives <= 0) {
         gameOver = true;
-        stopBGM();
         return;
       }
 
       if (options.respawnFromTop) {
         const groundY = getGroundY();
 
-        // 穴＆敵を避ける安全なXを探してリスポーン
+        // 穴＆敵＆直前死亡位置を避ける安全なXを探してリスポーン
         const safeX = findSafeRespawnX();
         player.x = safeX;
         playerBaseX = safeX;
@@ -449,16 +440,32 @@
     }
 
     // ==========================
-    // オブジェクト生成
+    // オブジェクト生成（確率をランダム寄りに）
     // ==========================
     function spawnObject() {
       const groundY = getGroundY();
       const x = canvas.width + 40;
-      const r = Math.random();
 
-      // アイテム多めに
-      if (r < 0.30) {
-        // スコアアイテム
+      // 同じカテゴリを複数入れて「なんとなく出やすい／出にくい」を表現
+      const categories = [
+        "score", "score", "score",  // 食べ物アイテム多め
+        "chick",
+        "bike",
+        "wall",
+        "stairs",
+        "turtle",
+        "mushroom",
+        "platform",
+        "air",
+        "bee",
+        "ghost",
+        "hole", "hole",            // 穴は少し多め
+        "star"                     // ⭐はレア
+      ];
+
+      const type = categories[Math.floor(Math.random() * categories.length)];
+
+      if (type === "score") {
         const foodEmojis = ["🍎", "🍌", "🍕", "🍩", "🍔", "🍇", "🍰", "🍖"];
         items.push({
           type: "score",
@@ -468,8 +475,7 @@
           height: 28,
           emoji: foodEmojis[Math.floor(Math.random() * foodEmojis.length)]
         });
-      } else if (r < 0.42) {
-        // ひよこ
+      } else if (type === "chick") {
         items.push({
           type: "chick",
           x,
@@ -478,8 +484,7 @@
           height: 30,
           emoji: "🐣"
         });
-      } else if (r < 0.54) {
-        // 自転車
+      } else if (type === "bike") {
         items.push({
           type: "bike",
           x,
@@ -488,8 +493,7 @@
           height: 34,
           emoji: "🚲"
         });
-      } else if (r < 0.64) {
-        // 通常の壁
+      } else if (type === "wall") {
         const wallHeight = randomRange(50, 140);
         walls.push({
           x,
@@ -497,8 +501,7 @@
           width: 40,
           height: wallHeight
         });
-      } else if (r < 0.74) {
-        // 階段状の壁
+      } else if (type === "stairs") {
         const stepCount = Math.random() < 0.5 ? 2 : 3;
         const stepWidth = 40;
         const stepHeight = 35;
@@ -511,8 +514,7 @@
             height: h
           });
         }
-      } else if (r < 0.82) {
-        // 亀
+      } else if (type === "turtle") {
         const h = 32;
         turtles.push({
           x,
@@ -521,7 +523,16 @@
           height: h,
           emoji: "🐢"
         });
-      } else if (r < 0.90) {
+      } else if (type === "mushroom") {
+        const h = 32;
+        mushrooms.push({
+          x,
+          y: groundY - h,
+          width: 32,
+          height: h,
+          emoji: "🍄"
+        });
+      } else if (type === "platform") {
         // 空中に浮いて動いてくる床
         const platWidth = randomRange(80, 140);
         const platHeight = 16;
@@ -537,20 +548,9 @@
           phase: Math.random() * Math.PI * 2,
           isMoving: true
         });
-      } else if (r < 0.94) {
-        // キノコ
+      } else if (type === "air") {
         const h = 32;
-        mushrooms.push({
-          x,
-          y: groundY - h,
-          width: 32,
-          height: h,
-          emoji: "🍄"
-        });
-      } else if (r < 0.97) {
-        // 空の敵：鳥・爆弾・唐辛子
-        const h = 32;
-        const airEmojis = ["🐦", "💣", "🌶️"];
+        const airEmojis = ["🦇", "💣", "🌶️"];
         birds.push({
           x,
           y: randomRange(80, groundY - 130),
@@ -558,8 +558,7 @@
           height: h,
           emoji: airEmojis[Math.floor(Math.random() * airEmojis.length)]
         });
-      } else if (r < 0.985) {
-        // 空の敵：蜂（サインカーブ）
+      } else if (type === "bee") {
         const baseY = randomRange(80, groundY - 140);
         const amp = randomRange(20, 50);
         const omega = randomRange(2, 4);
@@ -574,41 +573,34 @@
           amp,
           omega
         });
-      } else {
-        // 残り少しの確率で：ゴースト or 穴 or ⭐
-        const r2 = Math.random();
-        if (r2 < 0.4) {
-          // オバケ
-          const baseY = randomRange(80, groundY - 130);
-          ghosts.push({
-            x,
-            baseY,
-            y: baseY,
-            width: 40,
-            height: 32,
-            emoji: "👻",
-            phase: Math.random() * Math.PI * 2,
-            moveState: 1,                     // 1:動く, 0:止まる
-            moveTimer: randomRange(0.3, 0.8)
-          });
-        } else if (r2 < 0.7) {
-          // 穴（地面の切れ目）
-          const holeWidth = randomRange(80, 140);
-          holes.push({
-            x,
-            width: holeWidth
-          });
-        } else {
-          // ⭐無敵アイテム
-          items.push({
-            type: "star",
-            x,
-            y: randomRange(groundY * 0.25, groundY - 160),
-            width: 30,
-            height: 30,
-            emoji: "⭐"
-          });
-        }
+      } else if (type === "ghost") {
+        const baseY = randomRange(80, groundY - 130);
+        ghosts.push({
+          x,
+          baseY,
+          y: baseY,
+          width: 40,
+          height: 32,
+          emoji: "👻",
+          phase: Math.random() * Math.PI * 2,
+          moveState: 1,                     // 1:動く, 0:止まる
+          moveTimer: randomRange(0.3, 0.8)
+        });
+      } else if (type === "hole") {
+        const holeWidth = randomRange(80, 140);
+        holes.push({
+          x,
+          width: holeWidth
+        });
+      } else if (type === "star") {
+        items.push({
+          type: "star",
+          x,
+          y: randomRange(groundY * 0.25, groundY - 160),
+          width: 30,
+          height: 30,
+          emoji: "⭐"
+        });
       }
     }
 
@@ -623,7 +615,6 @@
       } else {
         resumeAudio();
       }
-      startBGM();
 
       if (gameOver) {
         resetGame();
@@ -673,7 +664,6 @@
         } else {
           resumeAudio();
         }
-        startBGM();
         if (gameOver) {
           resetGame();
         }
@@ -806,6 +796,13 @@
 
       // 画面下まで落ちたらロスト（穴や崖落ち）
       if (player.y > canvas.height && invincibleTimer <= 0) {
+        const centerX = player.x + player.width / 2;
+        const holeCenter = getHoleCenterUnderX(centerX);
+        if (holeCenter != null) {
+          lastDeathAvoidCenterX = holeCenter;
+        } else {
+          lastDeathAvoidCenterX = centerX; // 落ち地点そのものを避け対象に
+        }
         damagePlayer({ respawnFromTop: true });
       }
 
@@ -896,6 +893,7 @@
 
       // 壁に押し出されて画面外 → ロスト＋上から新しい自分
       if (player.x + player.width < 0 && invincibleTimer <= 0) {
+        lastDeathAvoidCenterX = player.x + player.width / 2;
         damagePlayer({ respawnFromTop: true });
         playerRect.x = player.x;
         playerRect.y = player.y;
@@ -910,7 +908,10 @@
       }
 
       // 敵との当たり判定
-      function handleEnemyHit(list, index) {
+      function handleEnemyHit(list, index, centerX) {
+        // 直前にやられた位置を記録（同じのを避ける）
+        lastDeathAvoidCenterX = centerX;
+
         // ⭐モード中は敵を倒して加点・ロストしない
         if (isStarMode) {
           const enemy = list[index];
@@ -928,12 +929,17 @@
           return;
         }
 
-        // 自転車モード：一回だけ身代わり的に解除
+        // 自転車モード：一回だけ身代わり的に解除（敵は残す）
         if (isBikeMode) {
           isBikeMode = false;
           bikeTimer = 0;
           if (!isChickMode) player.emoji = "🏃‍♂️";
-        } else if (invincibleTimer <= 0) {
+          return;
+        }
+
+        // 通常ヒット：ライフ減＋ロスト＋その敵は消す
+        if (invincibleTimer <= 0) {
+          list.splice(index, 1); // この敵はいなくする
           damagePlayer({ respawnFromTop: true });
         }
       }
@@ -941,21 +947,24 @@
       // 亀
       for (let i = 0; i < turtles.length && !gameOver; i++) {
         if (rectsOverlap(playerRect, turtles[i])) {
-          handleEnemyHit(turtles, i);
+          const c = turtles[i].x + turtles[i].width / 2;
+          handleEnemyHit(turtles, i, c);
           break;
         }
       }
       // キノコ
       for (let i = 0; i < mushrooms.length && !gameOver; i++) {
         if (rectsOverlap(playerRect, mushrooms[i])) {
-          handleEnemyHit(mushrooms, i);
+          const c = mushrooms[i].x + mushrooms[i].width / 2;
+          handleEnemyHit(mushrooms, i, c);
           break;
         }
       }
-      // 鳥・爆弾・唐辛子
+      // コウモリ・爆弾・唐辛子
       for (let i = 0; i < birds.length && !gameOver; i++) {
         if (rectsOverlap(playerRect, birds[i])) {
-          handleEnemyHit(birds, i);
+          const c = birds[i].x + birds[i].width / 2;
+          handleEnemyHit(birds, i, c);
           break;
         }
       }
@@ -969,7 +978,8 @@
           height: bee.height
         };
         if (rectsOverlap(playerRect, beeRect)) {
-          handleEnemyHit(bees, i);
+          const c = bee.x + bee.width / 2;
+          handleEnemyHit(bees, i, c);
           break;
         }
       }
@@ -983,7 +993,8 @@
           height: g.height
         };
         if (rectsOverlap(playerRect, gRect)) {
-          handleEnemyHit(ghosts, i);
+          const c = g.x + g.width / 2;
+          handleEnemyHit(ghosts, i, c);
           break;
         }
       }
@@ -1031,17 +1042,24 @@
         score += dt * 5;
       }
 
-      // プレイヤーの回転（前転）
+      // プレイヤーの回転（前転・逆回転）
       const inNormalMode = !isBikeMode && !isChickMode;
-      let rollDir = 1;
-      if (isBikeMode || inNormalMode || isStarMode) {
-        // 右向き描画なので符号反転で前転に見せる
-        rollDir = -1;
+      let baseDir = 1;
+      if (isBikeMode || inNormalMode) {
+        baseDir = -1;   // 通常時はこの方向
+      } else {
+        baseDir = 1;    // ひよこモードなど
       }
+
+      let rollDir = baseDir;
       let rollSpeed = 4.0;
+
+      // ⭐中は逆回転＆高速
       if (isStarMode) {
-        rollSpeed = 10.0; // ⭐中は高速バックフリップ
+        rollDir = -baseDir;   // 通常と逆向き
+        rollSpeed = 10.0;
       }
+
       player.angle += rollDir * rollSpeed * dt;
 
       // フローティングテキスト
