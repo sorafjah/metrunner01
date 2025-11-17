@@ -11,9 +11,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ララランナー">
 
-  <!-- アイコン -->
-  <link rel="apple-touch-icon" href="https://placehold.co/192x192/87ceeb/000000?text=%F0%9F%8F%83%E2%80%8D%E2%99%82%EF%B8%8F">
-  <!-- 外部 manifest.json を使う -->
+  <!-- iPhone / iPad アイコン（同じフォルダに metrunner01-180.png を置く） -->
+  <link rel="apple-touch-icon" href="metrunner01-180.png">
+  <!-- PWA manifest -->
   <link rel="manifest" href="manifest.json">
   
   <style>
@@ -64,7 +64,7 @@
     let floatTexts = [];
 
     let score = 0;
-    let highScore = 0; // ★ ハイスコア
+    let highScore = 0; // ハイスコア
     let gameOver = false;
     let isTouching = false;
     let prevIsTouching = false;
@@ -110,7 +110,7 @@
     let isRespawnPause = false;
     let respawnPauseTimer = 0;
 
-    // ★ リスポーンの「1秒待ち」管理
+    // ★ リスポーンの「2秒待ち」
     let pendingRespawn = false;
     let respawnDelayTimer = 0;
     let respawnSafeX = null;
@@ -118,27 +118,39 @@
     // --- 直前にやられた位置 ---
     let lastDeathAvoidCenterX = null;
 
-    // 8. 唐辛子 震え処理
+    // 唐辛子 震え処理
     let isShaking = false;
     let shakeTimer = 0;
-    const SHAKE_DURATION = 1.0;
+    const SHAKE_DURATION = 2.0; // しびれ2秒
     let shakeOffsetX = 0;
 
-    // 9. ゲームオーバー表示タイマー
+    // ゲームオーバー表示タイマー
     let gameOverDisplayTimer = 0;
     const GAME_OVER_DISPLAY_DURATION = 3.0;
 
-    // 13. スタート時説明
+    // スタート時説明
     let showInstructions = false;
     let instructionTimer = 0;
     const INSTRUCTION_DURATION = 2.0;
     const instructionText = "走り方\n画面を押すとジャンプ\n1回だけ２段ジャンプできる\n長押しでロングジャンプ\n下になぞると即落ち";
 
     // ==========================
-    // サウンド（イベント音のみ：BGMなし）
+    // ハイスコアのロード（ローカル保存）
+    // ==========================
+    try {
+      const saved = localStorage.getItem("lalarunner_highscore");
+      if (saved !== null) {
+        highScore = parseFloat(saved) || 0;
+      }
+    } catch (e) {
+      highScore = 0;
+    }
+
+    // ==========================
+    // サウンド
     // ==========================
     let audioCtx = null;
-    let audioUnlocked = false; // ★ iPhone対策
+    let audioUnlocked = false; // iPhone対策
 
     function initAudio() {
       if (!audioCtx) {
@@ -155,7 +167,6 @@
       }
     }
 
-    // ★ iPhoneでの無音問題対策：最初のタップで無音バッファを再生して「アンロック」
     function unlockAudio() {
       if (!audioCtx || audioUnlocked) return;
       try {
@@ -165,9 +176,7 @@
         source.connect(audioCtx.destination);
         source.start(0);
         audioUnlocked = true;
-      } catch (e) {
-        // 失敗しても特に何もしない
-      }
+      } catch (e) {}
     }
 
     function playBeep(f, duration, type = "sine", volume = 0.3) {
@@ -188,7 +197,6 @@
       osc.stop(now + duration + 0.05);
     }
 
-    // イベント別音
     function playScoreItemSound() {
       playBeep(880, 0.10, "sine", 0.25);
       setTimeout(() => playBeep(1320, 0.10, "sine", 0.2), 90);
@@ -210,13 +218,11 @@
       playBeep(220, 0.25, "square", 0.35);
       setTimeout(() => playBeep(180, 0.25, "square", 0.3), 180);
     }
-    // ⭐取得時
     function playStarItemSound() {
       playBeep(1000, 0.08, "sawtooth", 0.3);
       setTimeout(() => playBeep(1300, 0.08, "sawtooth", 0.25), 80);
       setTimeout(() => playBeep(1600, 0.10, "sawtooth", 0.2), 160);
     }
-    // ⭐中に敵を倒した時
     function playStarHitSound() {
       playBeep(1500, 0.06, "square", 0.3);
       setTimeout(() => playBeep(1800, 0.08, "square", 0.25), 60);
@@ -330,15 +336,12 @@
       return false;
     }
 
-    // 指定したX（中心）が穴 or 敵 or 直前死亡ポイントの近くかどうか
     function isCenterOverHoleOrEnemy(centerX) {
-      // 穴
       for (const hole of holes) {
         if (centerX > hole.x && centerX < hole.x + hole.width) {
           return true;
         }
       }
-      // 敵（地上・空中含め）
       const enemyLists = [turtles, mushrooms, birds, bees, ghosts];
       const margin = 30;
       for (const list of enemyLists) {
@@ -349,7 +352,6 @@
           }
         }
       }
-      // 直前に死んだ位置の近く
       const avoidMargin = 80;
       if (lastDeathAvoidCenterX != null) {
         if (Math.abs(centerX - lastDeathAvoidCenterX) < avoidMargin) {
@@ -359,7 +361,6 @@
       return false;
     }
 
-    // 落下リスポーン用の安全なX座標を探す
     function findSafeRespawnX() {
       const minX = canvas.width * 0.10;
       const maxX = canvas.width * 0.30;
@@ -443,7 +444,6 @@
     function getCurrentScrollSpeed() {
       if (isRespawnPause || isShaking) return 0;
       if (isStarMode) return BASE_SCROLL_SPEED * 1.5;
-
       let speed = BASE_SCROLL_SPEED;
       if (isChickMode) speed = BASE_SCROLL_SPEED * 0.6;
       if (isBikeMode)  speed = BASE_SCROLL_SPEED * 1.3;
@@ -462,9 +462,11 @@
       lostMessageTimer = 3.0;
 
       if (lives <= 0) {
-        // ★ ハイスコア更新
         if (score > highScore) {
           highScore = score;
+          try {
+            localStorage.setItem("lalarunner_highscore", highScore);
+          } catch (e) {}
         }
         gameOver = true;
         gameOverDisplayTimer = GAME_OVER_DISPLAY_DURATION;
@@ -472,7 +474,7 @@
       }
       
       if (options.respawnFromTop) {
-        // 穴落ちなど：1秒後に上から新しい自分が落ちてくる
+        // 穴落ち・落下リスポーンパターン
         const safeX = findSafeRespawnX();
         respawnSafeX = safeX;
         playerBaseX = safeX;
@@ -486,16 +488,16 @@
         starTimer = 0;
         player.emoji = "🏃‍♂️";
 
+        // 画面停止＋2秒後に新しい自分が落ちてくる
         isRespawnPause = true;
-        respawnPauseTimer = 3.2;
-
+        respawnPauseTimer = 2.2;
         pendingRespawn = true;
-        respawnDelayTimer = 1.0; // ★ 1秒待ってから新しい自分を落とす
+        respawnDelayTimer = 2.0;
         return;
       } else {
-        // 敵ヒット・壁クラッシュなど：
-        // 自分が「ぴょーん」と上に飛んでから画面下まで落ちる
-        player.vy = -400; // 上に飛び上がる
+        // 敵ヒット・壁クラッシュ
+        // ぴょーんと上に飛んでから画面下へ
+        player.vy = -400;
         player.onGround = false;
         jumpUsesLeft = 0;
         isCurrentlyThrusting = false;
@@ -508,7 +510,12 @@
         isStarMode = false;
         starTimer = 0;
         player.emoji = "🏃‍♂️";
-        // 画面下まで落ちたあと、update() の中で respawn をスケジュールする
+
+        // ロストしたら2秒ほど画面停止 → 2秒後に新しい自分が上から落ちてくる
+        isRespawnPause = true;
+        respawnPauseTimer = 2.2;
+        pendingRespawn = true;
+        respawnDelayTimer = 2.0;
       }
     }
 
@@ -651,7 +658,7 @@
           birds.push({
             x, y, width: 40, height: h, emoji,
             isBat: false, isVortex: true,
-            angle: 0, rotationSpeed: -5.0
+            angle: 0, rotationSpeed: -10.0 // ぐるぐる高速回転しながら移動
           });
         } else {
           birds.push({
@@ -661,7 +668,7 @@
         }
       } else if (type === "bee") {
         const baseY = randomRange(80, groundY - 140);
-        const amp = randomRange(20, 50);
+        const amp = randomRange(40, 70); // サインカーブを大きめに
         const omega = randomRange(2, 4);
         bees.push({
           x, baseY, y: baseY,
@@ -702,9 +709,8 @@
         initAudio();
       }
       resumeAudio();
-      unlockAudio(); // ★ iPhone対策
+      unlockAudio();
 
-      // ゲームオーバー中
       if (gameOver) {
         if (gameOverDisplayTimer <= 0) {
           resetGame();
@@ -712,13 +718,11 @@
         return;
       }
       
-      // 説明中は入力なし
       if (showInstructions) {
         return;
       }
 
       isTouching = true;
-
       const t = e.touches[0];
       touchStartY = t.clientY;
     }
@@ -739,7 +743,6 @@
       if (touchStartY === null) touchStartY = t.clientY;
       const dy = t.clientY - touchStartY;
 
-      // 下スワイプで高速落下
       if (dy > 40 && !player.onGround && !gameOver) {
         isTouching = false;
         isCurrentlyThrusting = false;
@@ -757,15 +760,14 @@
         e.preventDefault();
       }, { passive: false });
 
-      // PCテスト用
+      // PC用
       canvas.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        
         if (!audioCtx) {
           initAudio();
         }
         resumeAudio();
-        unlockAudio(); // ★
+        unlockAudio();
 
         if (gameOver) {
           if (gameOverDisplayTimer <= 0) {
@@ -793,7 +795,7 @@
     // ゲーム更新
     // ==========================
     function update(dt) {
-      // スタート時説明
+      // スタート説明
       if (showInstructions) {
         instructionTimer -= dt;
         if (instructionTimer <= 0) {
@@ -802,7 +804,7 @@
         return;
       }
 
-      // ゲームオーバー
+      // ゲームオーバー中
       if (gameOver) {
         if (gameOverDisplayTimer > 0) {
           gameOverDisplayTimer -= dt;
@@ -843,7 +845,7 @@
       const scrollSpeed = getCurrentScrollSpeed();
       const scroll = scrollSpeed * dt;
 
-      // タップのON/OFF
+      // タップ判定
       if (!isTouching && prevIsTouching) {
         if (isCurrentlyThrusting) {
           jumpUsesLeft = Math.max(0, jumpUsesLeft - 1);
@@ -889,7 +891,6 @@
           player.x < solid.x + solid.width;
         if (!overlapX) continue;
 
-        // 上から着地
         if (
           player.vy >= 0 &&
           playerBottom >= solid.y &&
@@ -903,7 +904,6 @@
           break;
         }
 
-        // 下からぶつかった
         if (
           player.vy < 0 &&
           playerTop <= solid.y + solid.height &&
@@ -931,8 +931,8 @@
 
       player.onGround = onGroundNow || onPlatform;
 
-      // 画面下に落ちたときの処理
-      if (player.y > canvas.height) { 
+      // 画面下に落ちた時
+      if (player.y > canvas.height) {
         const centerX = player.x + player.width / 2;
         let removedHole = false;
         for (let i = 0; i < holes.length; i++) {
@@ -950,10 +950,10 @@
         }
 
         if (invincibleTimer <= 0) {
-          // 穴落ちなど：ライフを減らしてリスポーン予約
+          // 穴など：ライフ減少＋リスポーン
           damagePlayer({ respawnFromTop: true });
         } else {
-          // 敵・壁で一度ダメージを受けてから落ちてきたケース
+          // 無敵中に落ちた（敵からのノックバックなど）
           if (!pendingRespawn) {
             const safeX = findSafeRespawnX();
             respawnSafeX = safeX;
@@ -968,9 +968,9 @@
             player.emoji = "🏃‍♂️";
 
             isRespawnPause = true;
-            respawnPauseTimer = 3.2;
+            respawnPauseTimer = 2.2;
             pendingRespawn = true;
-            respawnDelayTimer = 1.0;
+            respawnDelayTimer = 2.0;
           }
         }
       }
@@ -1032,7 +1032,7 @@
       bees = moveAndFilter(bees);
       for (const bee of bees) {
         bee.phase += bee.omega * dt;
-        bee.y = bee.baseY + bee.amp * Math.sin(bee.phase);
+        bee.y = bee.baseY + bee.amp * Math.sin(bee.phase); // サインカーブ
       }
 
       ghosts = ghosts.filter(g => {
@@ -1049,7 +1049,7 @@
         return g.x + g.width > -50;
       });
 
-      // 壁の横衝突
+      // 壁横衝突
       let playerRect = {
         x: player.x,
         y: player.y,
@@ -1087,10 +1087,15 @@
         }
       }
 
-      // 壁に押し出されて画面外
-      if (player.x + player.width < 0 && invincibleTimer <= 0) {
+      // 壁に押し出されて画面外（連続ロストしないようフラグ確認）
+      if (
+        player.x + player.width < 0 &&
+        invincibleTimer <= 0 &&
+        !isRespawnPause &&
+        !pendingRespawn
+      ) {
         lastDeathAvoidCenterX = player.x + player.width / 2;
-        damagePlayer(); // ここから「ぴょーん」→落下→1秒後リスポーン
+        damagePlayer();  // 壁ロスト
         playerRect.x = player.x;
         playerRect.y = player.y;
       }
@@ -1106,7 +1111,6 @@
       function handleEnemyHit(list, index, centerX, enemy) {
         lastDeathAvoidCenterX = centerX;
 
-        // ⭐モード
         if (isStarMode) {
           const e = enemy || list[index];
           if (e) {
@@ -1123,7 +1127,6 @@
           return;
         }
         
-        // 🌀 ヒット: 落下のみ
         if (enemy && enemy.emoji === "🌀") {
           if (invincibleTimer > 0) return;
           player.vy = GRAVITY * 0.8;
@@ -1134,7 +1137,6 @@
           return;
         }
         
-        // 🌶️ ヒット: 震え
         if (enemy && enemy.emoji === "🌶️") {
           if (invincibleTimer > 0) return;
           isShaking = true;
@@ -1145,7 +1147,6 @@
           return;
         }
 
-        // 自転車モード
         if (isBikeMode) {
           isBikeMode = false;
           bikeTimer = 0;
@@ -1155,7 +1156,7 @@
 
         if (invincibleTimer <= 0) {
           list.splice(index, 1);
-          damagePlayer(); // ここから「ぴょーん」
+          damagePlayer();
         }
       }
 
@@ -1195,7 +1196,7 @@
         }
       }
 
-      // アイテム取得
+      // アイテム
       if (!gameOver) {
         items = items.filter(item => {
           if (rectsOverlap(playerRect, item)) {
@@ -1238,24 +1239,22 @@
         score += dt * 5;
       }
 
-      // プレイヤーの回転
-      const inNormalMode = !isBikeMode && !isChickMode;
-      let baseDir = 1;
-      if (isBikeMode || inNormalMode) {
-        baseDir = -1;
-      } else {
-        baseDir = 1;
-      }
-      let rollDir = baseDir;
-      let rollSpeed = 4.0;
-
-      // ★ 無敵中は常に反時計回り（ひよこでも反時計回り）
+      // プレイヤー回転
+      // ⭐無敵中は反時計回りに高速回転
       if (isStarMode) {
-        rollDir = -1;
-        rollSpeed = 10.0;
+        const starRollSpeed = 12.0;     // 高速
+        player.angle += -starRollSpeed * dt; // 反時計回り（Canvasは負が反時計）
+      } else {
+        const inNormalMode = !isBikeMode && !isChickMode;
+        let rollDir = 0;
+        const baseSpeed = 4.0;
+        if (isBikeMode || inNormalMode) {
+          rollDir = -1; // 通常は時計回り気味
+        } else {
+          rollDir = 1;
+        }
+        player.angle += rollDir * baseSpeed * dt;
       }
-
-      player.angle += rollDir * rollSpeed * dt;
 
       // フローティングテキスト
       floatTexts = floatTexts.filter(ft => {
@@ -1264,9 +1263,9 @@
         return ft.life > 0;
       });
 
-      // オブジェクト生成
+      // オブジェクト生成（⭐中は2倍ペース）
       if (!isRespawnPause && !isShaking) {
-        spawnTimer += dt;
+        spawnTimer += dt * (isStarMode ? 2 : 1);
         if (spawnTimer >= nextSpawnTime) {
           spawnObject();
           spawnTimer = 0;
@@ -1274,7 +1273,7 @@
         }
       }
 
-      // ★ 1秒待ってから新しい自分を上から落とす処理
+      // リスポーンの「2秒待ち」→ 新しい自分を上から落とす
       if (pendingRespawn) {
         respawnDelayTimer -= dt;
         if (respawnDelayTimer <= 0) {
@@ -1292,7 +1291,7 @@
         }
       }
 
-      // リスポーン一時停止解除
+      // 一時停止解除
       if (isRespawnPause && respawnPauseTimer <= 0 && player.onGround && !pendingRespawn) {
         isRespawnPause = false;
       }
@@ -1306,7 +1305,7 @@
     function draw() {
       const groundY = getGroundY();
 
-      // 背景（空）
+      // 背景
       ctx.fillStyle = "#87ceeb";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -1351,13 +1350,23 @@
       }
 
       ctx.rotate(player.angle);
+
+      // ⭐無敵中は赤いオーラを付けて「赤い走ってる人」っぽく
+      if (isStarMode) {
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(255, 80, 80, 0.9)";
+        ctx.arc(0, 0, 26, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       ctx.font = "32px system-ui";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
+      ctx.fillStyle = "#000000";
       ctx.fillText(player.emoji, 0, 0);
       ctx.restore();
 
-      // 敵など
+      // 敵・アイテム
       ctx.font = "28px system-ui";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -1374,7 +1383,7 @@
           const bcy = b.y + b.height / 2;
           ctx.save();
           ctx.translate(bcx, bcy);
-          ctx.rotate(b.angle);
+          ctx.rotate(b.angle); // ぐるぐる回転しながら移動
           ctx.fillText(b.emoji, 0, 0);
           ctx.restore();
         } else {
@@ -1465,7 +1474,7 @@
         ctx.font = "24px system-ui";
         ctx.fillText("Score: " + Math.floor(score), canvas.width / 2, canvas.height / 2);
 
-        // ★ ハイスコア表示
+        // ハイスコア表示
         ctx.font = "20px system-ui";
         ctx.fillText("High Score: " + Math.floor(highScore), canvas.width / 2, canvas.height / 2 + 30);
 
@@ -1515,6 +1524,7 @@
     // ==========================
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
+        // GitHub Pages でもそのまま "./service-worker.js" でOK
         navigator.serviceWorker.register("./service-worker.js")
           .catch(err => {
             console.log("ServiceWorker registration failed:", err);
