@@ -1240,20 +1240,23 @@
       }
 
       // プレイヤー回転
-      // ⭐無敵中は必ず反時計回りに高速回転
-      if (isStarMode) {
-        const starRollSpeed = 12.0;
-        player.angle += -starRollSpeed * dt; // 反時計回り（Canvasは負が逆方向）
+      // ふだんの回転方向を求めておいて、無敵中はその逆向き＋高速にする
+      const inNormalMode = !isBikeMode && !isChickMode;
+      let normalRollDir = 0;      // ふだんの回転向き（+1 or -1）
+      const baseSpeed = 4.0;      // ふだんの回転スピード
+
+      if (isBikeMode || inNormalMode) {
+        normalRollDir = -1;       // 右回転気味
       } else {
-        const inNormalMode = !isBikeMode && !isChickMode;
-        let rollDir = 0;
-        const baseSpeed = 4.0;
-        if (isBikeMode || inNormalMode) {
-          rollDir = -1;
-        } else {
-          rollDir = 1;
-        }
-        player.angle += rollDir * baseSpeed * dt;
+        normalRollDir = 1;        // 別モードのときは逆向き
+      }
+
+      if (isStarMode) {
+        const starSpeedMul = 3.0; // 無敵中は高速
+        // ★ふだんと逆向きに、高速で回転
+        player.angle += -normalRollDir * baseSpeed * starSpeedMul * dt;
+      } else {
+        player.angle += normalRollDir * baseSpeed * dt;
       }
 
       // フローティングテキスト
@@ -1350,14 +1353,6 @@
       }
 
       ctx.rotate(player.angle);
-
-      // ⭐無敵中は赤いオーラ
-      if (isStarMode) {
-        ctx.beginPath();
-        ctx.fillStyle = "rgba(255, 80, 80, 0.9)";
-        ctx.arc(0, 0, 26, 0, Math.PI * 2);
-        ctx.fill();
-      }
 
       ctx.font = "32px system-ui";
       ctx.textAlign = "center";
