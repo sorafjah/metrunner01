@@ -133,7 +133,7 @@
     let instructionTimer = 0;
     const INSTRUCTION_DURATION = 2.0;
     // ★「走り方」を削除
-    const instructionText = "画面を押すとジャンプ\n1回だけ２段ジャンプできる\n長押しでロングジャンプ\n下になぞると即落ち";
+    const instructionText = "画面を押すとジャンプ\n1回だけ２段ジャンプできる\n長押しでロングジャンプ\n下になぞると着地";
 
     // ==========================
     // ハイスコアのロード（ローカル保存）
@@ -624,7 +624,7 @@
         mushrooms.push({
           x, y: groundY - h,
           width: 32, height: h,
-          emoji: "🍄"
+          emoji: "🌵"
         });
       } else if (type === "platform") {
         const platWidth = randomRange(80, 140);
@@ -1333,9 +1333,9 @@
         ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
       }
 
-      // 空中床
-      const airWallColor = "#9acd32";
-      const platformColor = "#cccccc";
+      // 空中床・空中壁・階段
+      const airWallColor = "#ffc0cb";   // ピンク（空中の壁・階段）
+      const platformColor = "#ffa500";  // オレンジ（空中の床）
       for (const plat of platforms) {
         ctx.fillStyle = plat.isAirWall ? airWallColor : platformColor;
         ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
